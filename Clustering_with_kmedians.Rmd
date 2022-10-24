@@ -1,0 +1,173 @@
+---
+title: "Assignment Clustering"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+##### Authors: Sergei Romanov (s.romanov@students.uu.nl)
+
+# Step 1.
+
+```{r, message=FALSE}
+library(dplyr)
+library(tidyverse)
+#install.packages('docstring')
+#library(docstring)
+clus_df <- read_csv("https://raw.githubusercontent.com/vankesteren/dav_practicals/master/12_Unsupervised_learning_Clustering/data/clusterdata.csv")
+```
+We added some docstrings in functions, which can help better understand the function. It is accssesible via **docstring(YOUR OBJECT)**, but we also kept our eye on the inline comments.
+
+# Step 2. Euclidean distance
+```{r Euclidean distance, message=FALSE}
+l2_dist <- function(x, y) {
+  #' @title Euclidean distance 
+  #' @description The function for Euclidean distance computation
+  #' @param x -  An object of class "vector". Vector nf x-axis 
+  #' @param y - An object of class "vector". Vector nf x-axis 
+  #' @return Returns an object of class "double". Returns the Euclidean distance
+  
+  d = sqrt(sum((x - y)^2))
+  return(d)
+}
+```
+
+# Step 3. **K-medians clustering algorithm**
+
+#### For this task we implemented Lloyd's algorithm [1], for it is the most easy to make out of all k-means(medians) algorithms.
+
+```{r pressure, message=FALSE}
+kmedians <- function(df, k, iters=10) {
+#' @title  K-median clustering 
+#' @description Function for k-medians clustering. The objects before the iterative part are
+#' named in camelCase convention,
+#' and after -- in snake_case, for the sake of convenience. 
+#' @param df -  An object of class "list". An Input data-frame 
+#' @param k - An object of class "double". Stands for the number of desired clusters
+#' @param iters - An object of class "double". Stands for the number of desired iterations,
+#' Default number is 10.  
+#' @return Clustering_vector - An object of class "double". The vector of clusters
+#' @return Sum_of_distances - An object of class "list". The vector of clusters
+#' @return Cluster_medians - An object of class "list". The vector of clusters
+  #some conditions 
+  
+  stopifnot(k <= nrow(df))
+
+  centroids = sample.int(nrow(df),k) #Initialize random centroids
+  centroidPoints = df[centroids,] %>% as.matrix()
+  dataCoordinates = as.matrix(df)
+  
+  withinClusterSS <- c() # Initialize the vector for within-cluster sums of squared Eucledian
+  
+  for (m in 1:iters) {
+    distances_matrix = matrix(0, nrow = nrow(dataCoordinates), ncol = k ) 
+    for (j in 1:k) { 
+      for (i in 1:nrow(dataCoordinates)) {
+        distances_matrix[i, j] = l2_dist(dataCoordinates[i,1:ncol(dataCoordinates)], centroidPoints[j,1:ncol(centroidPoints)])
+      }
+    }
+    
+  cluster = factor(apply(distances_matrix, 1, which.min)) # selects the minimum out of k columns  
+  distances_per_cluster <- list() 
+  for (i in 1:k) {
+        distances_per_cluster[[i]] = distances_matrix[which(cluster == i, i)]^2
+  }
+  
+  within_cluster_ss_temp <- unlist(lapply(distances_per_cluster, sum))
+  withinClusterSS <- append(withinClusterSS, within_cluster_ss_temp)
+
+ 
+  #Creates new centroids based on the within cluster medians
+  new_centroid = as.data.frame(df) %>% 
+    cbind(Clusters = as.integer(cluster)) %>% 
+    group_by(Clusters) %>%
+    summarise_all(median)
+    
+  centroidPoints = new_centroid[,-1] %>% as.matrix() #assign new centroids for new iteration
+  }
+  withinClusterSS <- t(array(withinClusterSS, dim = c(k, iters))) 
+  return(list(Clustering_vector = cluster,
+              Sum_of_distances = withinClusterSS,
+              Cluster_medians = centroidPoints))
+}
+```
+
+# Step 4: Compare to K-means
+ 1. First we graphically compare the stability of the clusters of kmeans and kmedians with two different random seeds.  
+ 
+ Reflection: the plots provides that results are not so stable with K = 2, 4, 6, and results differ also between functions. Moreover, it is manifest that most probably the true k is equal to 3, as the out come is similar with both functions and both seeds. Overall, in all other cases clusters differ.
+ 
+```{r}
+# Set the seed for reproducibility
+set.seed(45)
+
+df_copy <- clus_df
+df_copy %>% 
+  mutate(
+    k2_median = as_factor(kmedians(df_copy, 2)$Clustering_vector),
+    k3_median = as_factor(kmedians(df_copy, 3)$Clustering_vector),
+    k4_median = as_factor(kmedians(df_copy, 4)$Clustering_vector),
+    k6_median = as_factor(kmedians(df_copy, 6)$Clustering_vector), 
+    k2_mean = as_factor(kmeans(df_copy, 2)$cluster),
+    k3_mean = as_factor(kmeans(df_copy, 3)$cluster),
+    k4_mean = as_factor(kmeans(df_copy, 4)$cluster),
+    k6_mean = as_factor(kmeans(df_copy, 6)$cluster), 
+  ) %>% 
+  pivot_longer(cols = c(k2_median, k3_median, k4_median, k6_median, k2_mean, k3_mean, k4_mean,k6_mean ), 
+               names_to = "class_num", values_to = "cluster") %>% 
+  ggplot(aes(x = x1, y = x2, colour = cluster)) +
+  geom_point() +
+  scale_colour_brewer(type = "qual") + # use easy to distinguish scale
+  facet_wrap(~class_num, nrow = 4, ncol = 2, shrink = F) + 
+  theme_minimal()
+```
+
+```{r}
+# Set the seed for reproducibility
+set.seed(46)
+df_copy %>% 
+  mutate(
+    k2_median = as_factor(kmedians(df_copy, 2)$Clustering_vector),
+    k3_median = as_factor(kmedians(df_copy, 3)$Clustering_vector),
+    k4_median = as_factor(kmedians(df_copy, 4)$Clustering_vector),
+    k6_median = as_factor(kmedians(df_copy, 6)$Clustering_vector), 
+    k2_mean = as_factor(kmeans(df_copy, 2)$cluster),
+    k3_mean = as_factor(kmeans(df_copy, 3)$cluster),
+    k4_mean = as_factor(kmeans(df_copy, 4)$cluster),
+    k6_mean = as_factor(kmeans(df_copy, 6)$cluster), 
+  ) %>% 
+  pivot_longer(cols = c(k2_median, k3_median, k4_median, k6_median, k2_mean, k3_mean, k4_mean,k6_mean ), 
+               names_to = "class_num", values_to = "cluster") %>% 
+  ggplot(aes(x = x1, y = x2, colour = cluster)) +
+  geom_point() +
+  scale_colour_brewer(type = "qual") + # use easy to distinguish scale
+  facet_wrap(~class_num, nrow = 4, ncol = 2, shrink = F) + 
+  theme_minimal()
+```
+
+2. Then we check both with silhouette analysis.  
+Reflection: silhouette analysis resulted in no considerable difference. 
+
+```{r, out.height=500, out.width=700}
+#install.packages('cluster')
+library(cluster)
+dis = dist(clus_df)^2
+res = kmedians(clus_df,3)
+sil = silhouette(as.integer(res$Clustering_vector), dis)
+plot(sil, main = 'Silhouette plot for kmedians' )
+
+```
+```{r}
+dis = dist(clus_df)^2
+res = kmeans(clus_df,3)
+sil = silhouette (res$cluster, dis)
+plot(sil, main = 'Silhouette plot for kmeans' )
+```
+
+
+Sources:  
+1. Lloyd, S. (1982). Least squares quantization in PCM. IEEE transactions on information theory, 28(2), 129-137.  
+2. https://danhdtruong.com/K-means-from-scratch-in-R/#k-means-clustering-algorithm  
+3. https://datascience.stackexchange.com/questions/9858/convergence-in-hartigan-wong-k-means-method-and-other-algorithms?newreg=dbbcb10a6a6a4d289e0d7884256850d8
